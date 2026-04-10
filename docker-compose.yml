@@ -1,0 +1,93 @@
+services:
+  # ============================================================================
+  # CORE: MiniStack - All AWS Services (S3, Lambda, DynamoDB, etc.)
+  # ============================================================================
+  ministack:
+    image: nahuelnucera/ministack:latest
+    container_name: ministack
+    ports:
+      - "4566:4566"    # Main LocalStack endpoint (S3, Lambda, DynamoDB, SNS, SQS, etc.)
+      - "4571:4571"    # (Alternative endpoint, some services)
+    environment:
+      DEBUG: 0
+      DOCKER_HOST: unix:///var/run/docker.sock
+      # Services enabled by default
+      SERVICES: s3,lambda,dynamodb,sqs,sns,iam,apigateway,cognito-idp,cloudformation,logs,ssm,kms,secretsmanager,stepfunctions,events,kinesis,firehose,route53,ses,acm,wafv2,appync,ecr,ecs,rds,elasticache,glue,athena,ec2,cloudfront
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ministack-data:/tmp/localstack
+    networks:
+      - ministack-network
+    depends_on:
+      - postgres-rds
+      - redis-elasticache
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ============================================================================
+  # REAL INFRASTRUCTURE: PostgreSQL (for RDS service)
+  # ============================================================================
+  postgres-rds:
+    image: postgres:15-alpine
+    container_name: postgres-rds
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin123
+      POSTGRES_DB: mydb
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - ministack-network
+    labels:
+      - "service=rds"
+    # MiniStack will expose this on port 15432 via AWS RDS APIs
+
+  # ============================================================================
+  # REAL INFRASTRUCTURE: Redis (for ElastiCache service)
+  # ============================================================================
+  redis-elasticache:
+    image: redis:7-alpine
+    container_name: redis-elasticache
+    volumes:
+      - redis-data:/data
+    networks:
+      - ministack-network
+    labels:
+      - "service=elasticache"
+    # MiniStack will expose this on port 16379 via AWS ElastiCache APIs
+
+  # ============================================================================
+  # UI: MinIO Console - Visual S3 Browser
+  # ============================================================================
+  minio:
+    image: minio/minio:latest
+    container_name: minio-console
+    ports:
+      - "9000:9000"    # MinIO S3 gateway
+      - "9001:9001"    # MinIO Console UI
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio-data:/data
+    networks:
+      - ministack-network
+    command: server /data --console-address ":9001"
+
+networks:
+  ministack-network:
+    driver: bridge
+
+volumes:
+  ministack-data:
+    driver: local
+  minio-data:
+    driver: local
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local
